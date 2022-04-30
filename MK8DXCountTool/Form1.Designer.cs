@@ -33,8 +33,8 @@ namespace MK8DXCountTool
             this.menuStrip1 = new System.Windows.Forms.MenuStrip();
             this.fileFToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.splitContainer1 = new System.Windows.Forms.SplitContainer();
-            this.imageList1 = new System.Windows.Forms.ImageList(this.components);
             this.listView = new System.Windows.Forms.ListView();
+            this.imageList = new System.Windows.Forms.ImageList(this.components);
             this.richTextBox1 = new System.Windows.Forms.RichTextBox();
             this.menuStrip1.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.splitContainer1)).BeginInit();
@@ -77,21 +77,25 @@ namespace MK8DXCountTool
             this.splitContainer1.SplitterDistance = 500;
             this.splitContainer1.TabIndex = 1;
             // 
-            // imageList1
-            // 
-            this.imageList1.ColorDepth = System.Windows.Forms.ColorDepth.Depth8Bit;
-            this.imageList1.ImageSize = new System.Drawing.Size(16, 16);
-            this.imageList1.TransparentColor = System.Drawing.Color.Transparent;
-            // 
             // listView
             // 
             this.listView.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.listView.Font = new System.Drawing.Font("Yu Gothic UI", 12F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point);
             this.listView.HideSelection = false;
+            this.listView.LargeImageList = this.imageList;
             this.listView.Location = new System.Drawing.Point(0, 0);
             this.listView.Name = "listView";
             this.listView.Size = new System.Drawing.Size(500, 511);
+            this.listView.SmallImageList = this.imageList;
             this.listView.TabIndex = 0;
             this.listView.UseCompatibleStateImageBehavior = false;
+            this.listView.MouseClick += new System.Windows.Forms.MouseEventHandler(this.listView_MouseClick);
+            // 
+            // imageList
+            // 
+            this.imageList.ColorDepth = System.Windows.Forms.ColorDepth.Depth24Bit;
+            this.imageList.ImageSize = new System.Drawing.Size(256, 174);
+            this.imageList.TransparentColor = System.Drawing.Color.Transparent;
             // 
             // richTextBox1
             // 
@@ -112,6 +116,7 @@ namespace MK8DXCountTool
             this.MainMenuStrip = this.menuStrip1;
             this.Name = "Form1";
             this.Text = "Form1";
+            this.Load += new System.EventHandler(this.Form1_Load);
             this.menuStrip1.ResumeLayout(false);
             this.menuStrip1.PerformLayout();
             this.splitContainer1.Panel1.ResumeLayout(false);
@@ -130,7 +135,7 @@ namespace MK8DXCountTool
         private System.Windows.Forms.SplitContainer splitContainer1;
         private System.Windows.Forms.ListView listView;
         private System.Windows.Forms.RichTextBox richTextBox1;
-        private System.Windows.Forms.ImageList imageList1;
+        private System.Windows.Forms.ImageList imageList;
     }
 }
 
