@@ -110,46 +110,100 @@ def read_names(img, bounding_boxes, tool, builder):
 
 
 def read_scores(img, bounding_boxes, tool, builder):
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     _, thr = cv2.threshold(img, 175, 255, cv2.THRESH_BINARY)
     img_pil = cv2pil(thr)
     bounding_boxes = sorted(bounding_boxes, key=lambda b: b[1])
     scores = []
     for i, (x, y, w, h) in enumerate(bounding_boxes):
-        margin = 3
+        margin = 10
         crop = img_pil.crop(
-            [img_pil.width - 40, y - margin - 5, img_pil.width, y + h + margin + 5])
-        # crop.save(f"s{i:03d}.png")
+            [img_pil.width - 45, y - margin, img_pil.width, y + h + margin])
+        crop.save(f"s{i:03d}.png")
         score = tool.image_to_string(crop, lang='ssd', builder=builder)
         scores.append(score)
     return scores
 
+
+def common_prefix(n1, n2):
+    prefix = ""
+    for c1, c2 in zip(n1, n2):
+        if c1 != c2:
+            break
+        prefix += c1
+    return prefix
+
+
+def common_suffix(n1, n2):
+    return common_prefix(n1[::-1], n2[::-1])[::-1]
+
+
 def estimate_tags(names):
-    pass
+    tags = []
+    for i, n in enumerate(names):
+        # 既存のtagがあるか
+        found = False
+        for t, is_prefix in tags:
+            if is_prefix and n.startswith(t):
+                found = True
+                break
+            if not is_prefix and n.endswith(t):
+                found = True
+                break
+        if found:
+            continue
+
+        new_tag = []
+        for j, n2 in enumerate(names):
+            if i != j:
+                prefix = common_prefix(n, n2)
+                suffix = common_suffix(n, n2)
+                if len(prefix) > 0:
+                    new_tag = prefix, True
+                elif len(suffix) > 0:
+                    # prefixが登録済みならむし
+                    if len(new_tag) > 0 and new_tag[1]:
+                        continue
+                    new_tag = suffix, False
+        if len(new_tag) <= 0:
+            print(f"tag for {n} not found.")
+        else:
+            tags.append(new_tag)
+
+    return tags
+
 
 def main(args):
     img = cv2.imread(str(args.img_path))
 
     bounding_boxes = detect_name_regions(img)
 
-    for x, y, w, h in bounding_boxes:
-        cv2.rectangle(img, (x, y), (x + w, y + h), (0, 0, 255), 2, -1)
-
+    # for x, y, w, h in bounding_boxes:
+    #     cv2.rectangle(img, (x, y), (x + w, y + h), (0, 0, 255), 2, -1)
     # cv2.imshow("img", img)
     # cv2.waitKey(0)
-
     # exit()
 
     # OCRエンジン取得
     tool, builder = create_ocr()
 
     names = read_names(img, bounding_boxes, tool, builder)
-    # tags = estimate_tags(names)
+    print("names", names)
+    tags = estimate_tags(names)
+    print("tags", tags)
     scores = read_scores(img, bounding_boxes, tool, builder)
+    print("scores", scores)
 
-
-    print(names, scores)
+    def has_tag(n, t):
+        if t[1] and n.startswith(t[0]):
+            return True
+        if not t[1] and n.endswith(t[0]):
+            return True
+        return False
+    tag_scores = {t[0]: np.sum([int(s) for n, s in zip(names, scores) if has_tag(n, t)]) for t in tags}
+    print(tag_scores)
 
 
 if __name__ == '__main__':
-    args = parse_args()
+    args=parse_args()
     main(args)
