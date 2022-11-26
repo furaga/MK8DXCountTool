@@ -117,7 +117,7 @@ def read_scores(img, bounding_boxes, tool, builder, thresh):
         margin = 10
         crop = img_pil.crop(
             [img_pil.width - 45, y - margin, img_pil.width, y + h + margin])
-        crop.save(f"s{i:03d}.png")
+        # crop.save(f"s{i:03d}.png")
         score = tool.image_to_string(crop, lang='ssd', builder=builder)
         scores.append(score)
     return scores
@@ -164,7 +164,8 @@ def estimate_tags(names):
                         continue
                     new_tag = suffix, False
         if len(new_tag) <= 0:
-            print(f"tag for {n} not found.")
+            print(f"tag for {n} not found. Use its name as tag.")
+            tags.append((n, True))
         else:
             tags.append(new_tag)
 
@@ -175,24 +176,21 @@ def main(args):
     img_bgr = cv2.imread(str(args.img_path))
     img = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
 
-    # for x, y, w, h in bounding_boxes:
-    #     cv2.rectangle(img, (x, y), (x + w, y + h), (0, 0, 255), 2, -1)
-    # cv2.imshow("img", img)
-    # cv2.waitKey(0)
-    # exit()
-
     # OCRエンジン取得
     tool, builder = create_ocr()
 
+    # 自分以外のプレイヤ名・スコア
     bounding_boxes = detect_name_regions(img)
     names = read_names(img, bounding_boxes, tool, builder, 175)
     scores = read_scores(img, bounding_boxes, tool, builder, 175)
 
+    # 自分のプレイヤ名・スコア
     img2 = 255 - img
     bounding_boxes2 = detect_name_regions(img2)
     names2 = read_names(img2, bounding_boxes2, tool, builder, 100)
     scores2 = read_scores(img2, bounding_boxes2, tool, builder, 100)
 
+    # タグを推定
     names += names2
     scores += scores2
     tags = estimate_tags(names)
@@ -214,7 +212,14 @@ def main(args):
         if not t[1] and n.endswith(t[0]):
             return True
         return False
-    tag_scores = {t[0]: np.sum([int(s) for n, s in zip(
+
+    def to_int(s):
+        try:
+            return int(s)
+        except Exception:
+            return 0
+    
+    tag_scores = {t[0]: np.sum([to_int(s) for n, s in zip(
         names, scores) if has_tag(n, t)]) for t in tags}
 
     # my_tagとの差分付きでスコア大きい順に表示
