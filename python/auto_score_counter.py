@@ -14,6 +14,7 @@ from PIL import Image, ImageEnhance
 def parse_args():
     parser = argparse.ArgumentParser(description='Hand Tracking Demo')
     parser.add_argument('--img_path', type=Path, required=True)
+    parser.add_argument('--my_tag', type=str, default="RR")
     args = parser.parse_args()
     return args
 
@@ -50,8 +51,6 @@ def replace_chars(text):
 
 
 def detect_name_regions(img):
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-
     _, thr = cv2.threshold(img, 175, 255, cv2.THRESH_BINARY)
 
     kernel = np.ones((5, 5), np.uint8)
@@ -65,7 +64,7 @@ def detect_name_regions(img):
     t_bounding_boxes = [cv2.boundingRect(c) for c in contours]
     bounding_boxes = []
     for x, y, w, h in t_bounding_boxes:
-        if 100 < x and x + w < 360 and 10 < h < 40:
+        if 100 < x < 200 and x + w < 360 and 10 < h < 40:
             merged = False
             for i, b in enumerate(bounding_boxes):
                 if abs(b[1] - y) < 5:
@@ -94,8 +93,8 @@ def create_ocr():
     return tool, builder
 
 
-def read_names(img, bounding_boxes, tool, builder):
-    _, thr = cv2.threshold(img, 175, 255, cv2.THRESH_BINARY)
+def read_names(img, bounding_boxes, tool, builder, thresh):
+    _, thr = cv2.threshold(img, thresh, 255, cv2.THRESH_BINARY)
     img_pil = cv2pil(thr)
     bounding_boxes = sorted(bounding_boxes, key=lambda b: b[1])
     names = []
@@ -109,9 +108,8 @@ def read_names(img, bounding_boxes, tool, builder):
     return names
 
 
-def read_scores(img, bounding_boxes, tool, builder):
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    _, thr = cv2.threshold(img, 175, 255, cv2.THRESH_BINARY)
+def read_scores(img, bounding_boxes, tool, builder, thresh):
+    _, thr = cv2.threshold(img, thresh, 255, cv2.THRESH_BINARY)
     img_pil = cv2pil(thr)
     bounding_boxes = sorted(bounding_boxes, key=lambda b: b[1])
     scores = []
@@ -174,9 +172,8 @@ def estimate_tags(names):
 
 
 def main(args):
-    img = cv2.imread(str(args.img_path))
-
-    bounding_boxes = detect_name_regions(img)
+    img_bgr = cv2.imread(str(args.img_path))
+    img = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
 
     # for x, y, w, h in bounding_boxes:
     #     cv2.rectangle(img, (x, y), (x + w, y + h), (0, 0, 255), 2, -1)
@@ -187,12 +184,29 @@ def main(args):
     # OCRエンジン取得
     tool, builder = create_ocr()
 
-    names = read_names(img, bounding_boxes, tool, builder)
-    print("names", names)
+    bounding_boxes = detect_name_regions(img)
+    names = read_names(img, bounding_boxes, tool, builder, 175)
+    scores = read_scores(img, bounding_boxes, tool, builder, 175)
+
+    img2 = 255 - img
+    bounding_boxes2 = detect_name_regions(img2)
+    names2 = read_names(img2, bounding_boxes2, tool, builder, 100)
+    scores2 = read_scores(img2, bounding_boxes2, tool, builder, 100)
+
+    names += names2
+    scores += scores2
     tags = estimate_tags(names)
-    print("tags", tags)
-    scores = read_scores(img, bounding_boxes, tool, builder)
+
+    print("names", names)
     print("scores", scores)
+    print("tags", tags)
+
+    # for x, y, w, h in bounding_boxes2:
+    #     cv2.rectangle(img_bgr, (x, y), (x + w, y + h), (0, 0, 255), 2, -1)
+    # cv2.imshow("img_bgr", img_bgr)
+    # cv2.imshow("img2", img2)
+    # cv2.waitKey(0)
+    # exit()
 
     def has_tag(n, t):
         if t[1] and n.startswith(t[0]):
@@ -200,10 +214,19 @@ def main(args):
         if not t[1] and n.endswith(t[0]):
             return True
         return False
-    tag_scores = {t[0]: np.sum([int(s) for n, s in zip(names, scores) if has_tag(n, t)]) for t in tags}
-    print(tag_scores)
+    tag_scores = {t[0]: np.sum([int(s) for n, s in zip(
+        names, scores) if has_tag(n, t)]) for t in tags}
+
+    # my_tagとの差分付きでスコア大きい順に表示
+    my_tag = [t for t, _ in tags if args.my_tag in t][0]
+    sorted_tag_scores = sorted(tag_scores.items(), key=lambda ts: -ts[1])
+    print("====================")
+    for tag, score in sorted_tag_scores:
+        diff = score - tag_scores[my_tag]
+        print(f"{tag}: {score} ({'+' if diff >= 0 else ''}{diff})")
+    print("====================")
 
 
 if __name__ == '__main__':
-    args=parse_args()
+    args = parse_args()
     main(args)
