@@ -230,6 +230,143 @@ def merge_neighboring_bboxes(t_bounding_boxes):
     return bounding_boxes
 
 
+def extract_regions(all_bounding_boxes, check_fn):
+    boxes_ls = []
+    for b in all_bounding_boxes:
+        found = False
+        for bs in boxes_ls:
+            if check_fn(b, bs):
+                bs.append(b)
+                found = True
+                break
+        if not found:
+            boxes_ls.append([b])
+
+    best_idx = np.argmax([len(bs) for bs in boxes_ls])
+    return boxes_ls[best_idx]
+
+
+def extract_name_regions(all_bounding_boxes):
+    return extract_regions(
+        all_bounding_boxes,
+        check_fn=lambda b, bs: abs(b[0] - bs[0][0]) < 10
+    )
+
+
+def extract_score_regions(all_bounding_boxes):
+    return extract_regions(
+        all_bounding_boxes,
+        check_fn=lambda b, bs: abs(b[0] + b[2] - bs[0][0] - bs[0][2]) < 10
+    )
+
+
+def correct_regions(name_regions, score_regions):
+    # y-sort
+    name_regions = sorted(name_regions, key=lambda b: b[1])
+
+    score_regions = sorted(score_regions, key=lambda b: b[1])
+    score_minx = np.min([b[0] for b in score_regions])
+    score_maxx = np.max([b[0] + b[2] for b in score_regions])
+
+    # TODO: nameの漏れがあった場合の補完
+    new_name_regions = name_regions
+
+    # nameに対応するscoreを見つける
+    new_score_regions = []
+    for i, n_box in enumerate(new_name_regions):
+        found = False
+        for s_box in score_regions:
+            # n_boxとs_boxが同じくらいのY座標・高さかつs_boxがn_boxより右にある
+            if abs(n_box[1] - s_box[1]) < 10 and abs(n_box[3] - s_box[3]) < 10 and n_box[0] + n_box[2] < s_box[0]:
+                new_score_regions.append(s_box)
+                found = True
+                break
+        if not found:
+            new_score_regions.append(None)
+
+    # scoreの左端は下の項目以上であるはずなのでそれを保証する
+    prev_x = 1e4
+    for i in range(len(new_score_regions) - 1, -1, -1):
+        b = new_score_regions[i]
+        if b is None:
+            continue
+        new_x = min(prev_x, b[0])
+        new_score_regions[i] = new_x, b[1], b[2] + b[0] - new_x, b[3]
+        prev_x = new_x
+
+    # 対応するscoreが見つからなかった場合のfallback
+    for i in range(0, len(new_score_regions)):
+        if new_score_regions[i] is None:
+            # fallback
+            _, y, _, h = new_name_regions[i]
+            if i <= 0:
+                x = score_minx
+                w = score_maxx - score_minx
+            else:
+                x, _, w, _ = new_score_regions[i - 1]
+            new_score_regions[i] = [x, y, w, h]
+
+    return new_name_regions, new_score_regions
+
+
+def find_texts(regions, all_texts, all_bounding_vertexes):
+    texts = []
+    for x, y, w, h in regions:
+        x2 = x + w
+        y2 = y + h
+
+        contained = []
+        for text, pts in zip(all_texts, all_bounding_vertexes):
+            min_pt = np.min(pts, axis=0)
+            max_pt = np.max(pts, axis=0)
+            if x <= min_pt[0] and y <= min_pt[1] and max_pt[0] <= x2 and max_pt[1] <= y2:
+                contained.append((text, min_pt[0]))
+
+        # x座標順に並べる
+        contained = sorted(contained, key=lambda item: item[1])
+        final_text = "".join([t for t, _ in contained])
+        texts.append(final_text)
+
+    return texts
+
+
+def try_int(t):
+    try:
+        return True, int(t)
+    except Exception:
+        return False, 0
+
+
+def correct_scores(scores, score_regions, img_bgr):
+    prev_score = 0
+    for i in range(len(scores) - 1, 0, -1):
+        ret, val = try_int(scores[i])
+        if not ret:
+            scores[i] = ""
+        # スコアは降順なので、そうなってなければ認識ミスしている
+        if val < prev_score:
+            scores[i] = ""
+        prev_score = val
+
+    margin = 16
+    for i in range(len(scores)):
+        if scores[i] != "":
+            continue
+        x, y, w, h = score_regions[i]
+        top = max(0, y-margin)
+        bottom = min(y+h+margin, img_bgr.shape[0])
+        left = max(0, x-margin)
+        right = min(x+w+margin, img_bgr.shape[1])
+        crop = img_bgr[top:bottom, left:right]
+
+        # TODO: 数字はGoogle OCRで認識しづらい。文字は0~9しかないのでここだけテンプレートマッチしてみる？
+
+        import uuid
+        cv2.imwrite(f"data/scores_crop/{uuid.uuid4()}.png", crop)
+
+    return scores
+
+
 def main(args):
     ocr_path = args.ocr_path if len(
         str(args.ocr_path)) <= 0 else fallback_ocr_path(args.img_path)
@@ -239,13 +376,30 @@ def main(args):
     all_bounding_boxes = bounding_vertexes_to_boxes(all_bounding_vertexes)
     all_bounding_boxes = merge_neighboring_bboxes(all_bounding_boxes)
 
+    name_regions = extract_name_regions(all_bounding_boxes)
+    score_regions = extract_score_regions(all_bounding_boxes)
+
+    name_regions, score_regions = correct_regions(name_regions, score_regions)
+
+    names = find_texts(name_regions, all_texts, all_bounding_vertexes)
+    scores = find_texts(score_regions, all_texts, all_bounding_vertexes)
+    print(names)
+    print(scores)
+
     img_bgr = cv2.imread(str(args.img_path))
+
+    scores = correct_scores(scores, score_regions, img_bgr)
 
     for x, y, w, h in all_bounding_boxes:
         cv2.rectangle(img_bgr, (x, y), (x + w, y + h), (0, 0, 255), 2, -1)
-    cv2.imshow("img_bgr", img_bgr)
-    cv2.waitKey(0)
-    exit()
+    for x, y, w, h in name_regions:
+        cv2.rectangle(img_bgr, (x, y), (x + w, y + h), (255, 0, 255), 4, -1)
+    for x, y, w, h in score_regions:
+        cv2.rectangle(img_bgr, (x, y), (x + w, y + h), (0, 255, 0), 4, -1)
+
+    #cv2.imshow("img_bgr", img_bgr)
+   # cv2.waitKey(0)
+    #exit()
 
     # img = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
 

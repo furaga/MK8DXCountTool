@@ -37,6 +37,7 @@ def main(args):
     args.out_dir.mkdir(exist_ok=True, parents=True)
     all_img_paths = args.img_dir.glob("*.png")
     for img_path in all_img_paths:
+        print("Processing", str(img_path))
         texts = detect_text(img_path)
         out_path = args.out_dir / (img_path.stem + ".txt")
 
