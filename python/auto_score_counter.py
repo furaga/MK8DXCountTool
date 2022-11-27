@@ -14,6 +14,7 @@ from PIL import Image, ImageEnhance
 def parse_args():
     parser = argparse.ArgumentParser(description='Hand Tracking Demo')
     parser.add_argument('--img_path', type=Path, required=True)
+    parser.add_argument('--ocr_path', type=Path, default="")
     parser.add_argument('--my_tag', type=str, default="RR")
     args = parser.parse_args()
     return args
@@ -172,64 +173,136 @@ def estimate_tags(names):
     return tags
 
 
+def fallback_ocr_path(img_path):
+    return img_path.parent.parent / "scores_ocr" / (img_path.stem + ".txt")
+
+
+def load_ocr_results(ocr_path):
+    with open(ocr_path, encoding="utf8") as f:
+        texts = []
+        bounding_vertexes = []
+        for line in f:
+            tokens = line.strip().split(',')
+            tokens = [t.strip() for t in tokens]
+            if len(tokens) < 9:
+                continue
+            text = tokens[0]
+            pts = np.reshape(
+                [int(t) for t in tokens[1:]], (-1, 2))
+            texts.append(text)
+            bounding_vertexes.append(pts)
+
+    return texts, bounding_vertexes
+
+
+def bounding_vertexes_to_boxes(bounding_vertexes):
+    bounding_boxes = []
+    for pts in bounding_vertexes:
+        x1, y1 = np.min(pts, axis=0)
+        x2, y2 = np.max(pts, axis=0)
+        bounding_boxes.append([x1, y1, x2 - x1, y2 - y1])
+    return bounding_boxes[1:]
+
+
+def merge_neighboring_bboxes(t_bounding_boxes):
+    bounding_boxes = []
+    for x, y, w, h in t_bounding_boxes:
+        merged = False
+        for i, b in enumerate(bounding_boxes):
+            margin = 10
+            l1 = b[0] - margin
+            r1 = b[0] + b[2] + margin
+            l2 = x - margin
+            r2 = x + w + margin
+            if abs(b[1] - y) < margin and l2 < r1 and l1 < r2:
+                bounding_boxes[i] = [
+                    min(bounding_boxes[i][0], x),
+                    min(bounding_boxes[i][1], y),
+                    max(bounding_boxes[i][0] + bounding_boxes[i][2], x + w),
+                    max(bounding_boxes[i][1] + bounding_boxes[i][3], y + h),
+                ]
+                bounding_boxes[i][2] -= bounding_boxes[i][0]
+                bounding_boxes[i][3] -= bounding_boxes[i][1]
+                merged = True
+                break
+        if not merged:
+            bounding_boxes.append((x, y, w, h))
+    return bounding_boxes
+
+
 def main(args):
+    ocr_path = args.ocr_path if len(
+        str(args.ocr_path)) <= 0 else fallback_ocr_path(args.img_path)
+    print(ocr_path)
+
+    all_texts, all_bounding_vertexes = load_ocr_results(ocr_path)
+    all_bounding_boxes = bounding_vertexes_to_boxes(all_bounding_vertexes)
+    all_bounding_boxes = merge_neighboring_bboxes(all_bounding_boxes)
+
     img_bgr = cv2.imread(str(args.img_path))
-    img = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
 
-    # OCRエンジン取得
-    tool, builder = create_ocr()
+    for x, y, w, h in all_bounding_boxes:
+        cv2.rectangle(img_bgr, (x, y), (x + w, y + h), (0, 0, 255), 2, -1)
+    cv2.imshow("img_bgr", img_bgr)
+    cv2.waitKey(0)
+    exit()
 
-    # 自分以外のプレイヤ名・スコア
-    bounding_boxes = detect_name_regions(img)
-    names = read_names(img, bounding_boxes, tool, builder, 175)
-    scores = read_scores(img, bounding_boxes, tool, builder, 175)
+    # img = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
 
-    # 自分のプレイヤ名・スコア
-    img2 = 255 - img
-    bounding_boxes2 = detect_name_regions(img2)
-    names2 = read_names(img2, bounding_boxes2, tool, builder, 100)
-    scores2 = read_scores(img2, bounding_boxes2, tool, builder, 100)
+    # # OCRエンジン取得
+    # tool, builder = create_ocr()
 
-    # タグを推定
-    names += names2
-    scores += scores2
-    tags = estimate_tags(names)
+    # # 自分以外のプレイヤ名・スコア
+    # bounding_boxes = detect_name_regions(img)
+    # names = read_names(img, bounding_boxes, tool, builder, 175)
+    # scores = read_scores(img, bounding_boxes, tool, builder, 175)
 
-    print("names", names)
-    print("scores", scores)
-    print("tags", tags)
+    # # 自分のプレイヤ名・スコア
+    # img2 = 255 - img
+    # bounding_boxes2 = detect_name_regions(img2)
+    # names2 = read_names(img2, bounding_boxes2, tool, builder, 100)
+    # scores2 = read_scores(img2, bounding_boxes2, tool, builder, 100)
 
-    # for x, y, w, h in bounding_boxes2:
-    #     cv2.rectangle(img_bgr, (x, y), (x + w, y + h), (0, 0, 255), 2, -1)
-    # cv2.imshow("img_bgr", img_bgr)
-    # cv2.imshow("img2", img2)
-    # cv2.waitKey(0)
-    # exit()
+    # # タグを推定
+    # names += names2
+    # scores += scores2
+    # tags = estimate_tags(names)
 
-    def has_tag(n, t):
-        if t[1] and n.startswith(t[0]):
-            return True
-        if not t[1] and n.endswith(t[0]):
-            return True
-        return False
+    # print("names", names)
+    # print("scores", scores)
+    # print("tags", tags)
 
-    def to_int(s):
-        try:
-            return int(s)
-        except Exception:
-            return 0
-    
-    tag_scores = {t[0]: np.sum([to_int(s) for n, s in zip(
-        names, scores) if has_tag(n, t)]) for t in tags}
+    # # for x, y, w, h in bounding_boxes2:
+    # #     cv2.rectangle(img_bgr, (x, y), (x + w, y + h), (0, 0, 255), 2, -1)
+    # # cv2.imshow("img_bgr", img_bgr)
+    # # cv2.imshow("img2", img2)
+    # # cv2.waitKey(0)
+    # # exit()
 
-    # my_tagとの差分付きでスコア大きい順に表示
-    my_tag = [t for t, _ in tags if args.my_tag in t][0]
-    sorted_tag_scores = sorted(tag_scores.items(), key=lambda ts: -ts[1])
-    print("====================")
-    for tag, score in sorted_tag_scores:
-        diff = score - tag_scores[my_tag]
-        print(f"{tag}: {score} ({'+' if diff >= 0 else ''}{diff})")
-    print("====================")
+    # def has_tag(n, t):
+    #     if t[1] and n.startswith(t[0]):
+    #         return True
+    #     if not t[1] and n.endswith(t[0]):
+    #         return True
+    #     return False
+
+    # def to_int(s):
+    #     try:
+    #         return int(s)
+    #     except Exception:
+    #         return 0
+
+    # tag_scores = {t[0]: np.sum([to_int(s) for n, s in zip(
+    #     names, scores) if has_tag(n, t)]) for t in tags}
+
+    # # my_tagとの差分付きでスコア大きい順に表示
+    # my_tag = [t for t, _ in tags if args.my_tag in t][0]
+    # sorted_tag_scores = sorted(tag_scores.items(), key=lambda ts: -ts[1])
+    # print("====================")
+    # for tag, score in sorted_tag_scores:
+    #     diff = score - tag_scores[my_tag]
+    #     print(f"{tag}: {score} ({'+' if diff >= 0 else ''}{diff})")
+    # print("====================")
 
 
 if __name__ == '__main__':
