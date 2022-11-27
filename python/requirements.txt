@@ -2,3 +2,4 @@ opencv-python
 playsound==1.2.2
 pyocr
 Pillow
+google-cloud-vision
