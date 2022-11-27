@@ -348,7 +348,7 @@ def correct_scores(scores, score_regions, img_bgr):
             scores[i] = ""
         prev_score = val
 
-    margin = 16
+    margin = 10
     for i in range(len(scores)):
         if scores[i] != "":
             continue
@@ -362,7 +362,7 @@ def correct_scores(scores, score_regions, img_bgr):
         # TODO: 数字はGoogle OCRで認識しづらい。文字は0~9しかないのでここだけテンプレートマッチしてみる？
 
         import uuid
-        cv2.imwrite(f"data/scores_crop/{uuid.uuid4()}.png", crop)
+        cv2.imwrite(f"data/scores_crop/{i}.png", crop)
 
     return scores
 
