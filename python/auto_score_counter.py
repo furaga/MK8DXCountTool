@@ -258,7 +258,7 @@ def correct_scores(scores, score_regions, img_bgr):
             scores[i] = ""
         prev_score = val
 
-    margin = 8
+    margin = 16
     img_gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
     for i in range(len(scores)):
         if scores[i] != "":
@@ -273,7 +273,8 @@ def correct_scores(scores, score_regions, img_bgr):
         right = min(x+w+margin, img_bgr.shape[1])
         crop = img_gray[top:bottom, left:right]
 
-        cv2.imwrite(f"data/digital_testdata/{args.img_path.stem}_{i}.png", crop)
+        cv2.imwrite(
+            f"data/digital_testdata/{args.img_path.stem}_{i}.png", crop)
 
         # デジタル数字はGoogle OCRで認識しづらい。がんばって自力で認識する
         score = digit_ocr.detect_digit(crop)
@@ -290,7 +291,6 @@ def main(args):
     print(ocr_path)
 
     all_texts, all_bounding_vertexes = load_ocr_results(ocr_path)
-
 
     all_bounding_boxes = bounding_vertexes_to_boxes(all_bounding_vertexes)
     all_bounding_boxes = merge_neighboring_bboxes(all_bounding_boxes)
@@ -348,7 +348,7 @@ def main(args):
         cv2.rectangle(img_bgr, (x, y), (x + w, y + h), (0, 255, 0), 4, -1)
 
     cv2.imshow("img_bgr", img_bgr)
-    cv2.waitKey(0)
+    #cv2.waitKey(0)
 
 
 if __name__ == '__main__':

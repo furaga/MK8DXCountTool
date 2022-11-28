@@ -105,34 +105,43 @@ def rod2digit(rod, rod_bin):
             'width': int(width_rod), 'height': int(height_rod)}
 
 
-def detect_digit(roi_gray):
-    KERNEL_4N = np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]], dtype=np.uint8)
+def resize_show_img(img, target_width=256):
+    ratio = target_width / img.shape[1]
+    return cv2.resize(img, None, fx=ratio, fy=ratio)
+
+
+def detect_digit(roi_gray, verbose=False):
     roi_gray = roi_gray.copy()
-    roi_gray_enhanced = cv2.createCLAHE(
-        clipLimit=2.0, tileGridSize=(8, 8)).apply(roi_gray)
-    height, width = roi_gray_enhanced.shape
+
+    if verbose:
+        cv2.imshow("roi_gray", resize_show_img(roi_gray))
+
+    height, width = roi_gray.shape
+
     EDGELEN_PERCENT = (height + width) / 200
 
-    rods = []  # ROD = Region of a Digit
 
-    # Remove shadows near the display contour.
-    inner_x1, inner_x2 = int(width * .02), int(width * .98)
-    inner_y1, inner_y2 = int(height * .05), int(height * .95)
-    roi_bin_inner = cv2.adaptiveThreshold(roi_gray_enhanced[inner_y1:inner_y2, inner_x1:inner_x2], 255,
+    roi_bin = cv2.adaptiveThreshold(roi_gray, 255,
                                           cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY,
-                                          max(int(min(height, width) / 2 * .5), 1) * 2 + 1, 2)
-    digits_brightness = np.mean(
-        roi_gray_enhanced[inner_y1:inner_y2, inner_x1:inner_x2][roi_bin_inner > 127])
-    roi_bin = cv2.threshold(roi_gray_enhanced, 255,
-                            digits_brightness, cv2.THRESH_BINARY)[1]
-    roi_bin[inner_y1:inner_y2, inner_x1:inner_x2] = roi_bin_inner.copy()
+                                          max(int(min(height, width) / 4), 1) * 2 + 1, 2)
 
-    tmp = cv2.erode(roi_bin.copy(), KERNEL_4N,
-                    iterations=int(EDGELEN_PERCENT / 4 * .5) + 1)
+    if verbose:
+        cv2.imshow("roi_bin", resize_show_img(roi_bin))
+
+    rods = []  # ROD = Region of a Digit
+    KERNEL_4N = np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]], dtype=np.uint8)
+    tmp = cv2.erode(roi_bin.copy(), KERNEL_4N)
+
     _, labels, stats = cv2.connectedComponentsWithStats(tmp)[:3]
+
+    # 数字は外枠に接していない想定
     for i, stat in enumerate(stats):
         if 0 == min(stat[0], stat[1]) or width == stat[0] + stat[2] or height == stat[1] + stat[3]:
             roi_bin[i == labels] = 0
+
+    if verbose:
+        cv2.imshow("roi_bin2", resize_show_img(roi_bin))
+        cv2.imshow("tmp", resize_show_img(tmp))
 
     # Cut off bright area near the display contour and long bright line.
     tmp = roi_bin.copy()
@@ -195,12 +204,18 @@ def detect_digit(roi_gray):
         left, top, right, bottom, _ = rod
         digit = rod2digit(rod, roi_bin[top:bottom, left:right])["digit"]
         num = 10 * num + digit
+
+    if verbose:
+        print("result =", num)
+        cv2.waitKey(0)
+
     return num
+
 
 if __name__ == "__main__":
     from pathlib import Path
     all_img_paths = Path("data/digital_testdata").glob("*.png")
     for img_path in all_img_paths:
         img = cv2.imread(str(img_path), cv2.IMREAD_GRAYSCALE)
-        value = detect_digit(img)
+        value = detect_digit(img, True)
         print(f"{img_path.stem}: {value}")
