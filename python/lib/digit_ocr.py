@@ -196,3 +196,11 @@ def detect_digit(roi_gray):
         digit = rod2digit(rod, roi_bin[top:bottom, left:right])["digit"]
         num = 10 * num + digit
     return num
+
+if __name__ == "__main__":
+    from pathlib import Path
+    all_img_paths = Path("data/digital_testdata").glob("*.png")
+    for img_path in all_img_paths:
+        img = cv2.imread(str(img_path), cv2.IMREAD_GRAYSCALE)
+        value = detect_digit(img)
+        print(f"{img_path.stem}: {value}")
