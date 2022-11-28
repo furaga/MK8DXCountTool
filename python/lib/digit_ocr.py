@@ -134,6 +134,15 @@ def detect_digit(roi_gray, verbose=False):
         comp_means.append(cv2.mean(roi_gray, mask=mask)[0])
 
     comp_mean_threshold = np.max(comp_means) - 30
+    thr_mask = np.zeros_like(roi_gray)
+    thr_mask[roi_gray >= comp_mean_threshold] = 255
+    kernel = np.ones((5, 5), np.uint8)
+    thr_mask = cv2.morphologyEx(thr_mask, cv2.MORPH_CLOSE, kernel)
+
+    roi_bin[thr_mask <= 0] = 0
+
+    _, labels, stats = cv2.connectedComponentsWithStats(roi_bin)[:3]
+
     for i, stat in enumerate(stats):
         area = stat[-1]
         if area < width * height * 0.05 and max(stat[2], stat[3]) < min(width, height) * 0.2:
@@ -142,9 +151,9 @@ def detect_digit(roi_gray, verbose=False):
         if 0 == min(stat[0], stat[1]) or width == stat[0] + stat[2] or height == stat[1] + stat[3]:
             roi_bin[i == labels] = 0
             continue
-        if comp_means[i] < comp_mean_threshold:
-            roi_bin[i == labels] = 0
-            continue
+        # if comp_means[i] < comp_mean_threshold:
+        #     roi_bin[i == labels] = 0
+        #     continue
 
     if verbose:
         cv2.imshow("roi_bin2", resize_show_img(roi_bin))
@@ -152,19 +161,18 @@ def detect_digit(roi_gray, verbose=False):
     roi_bin_big = resize_show_img(roi_bin)
     kernel = np.ones((5, 5), np.uint8)
     roi_bin_big = cv2.morphologyEx(roi_bin_big, cv2.MORPH_CLOSE, kernel)
-    roi_bin_big = cv2.resize(roi_bin_big, (roi_bin.shape[1], roi_bin.shape[0]), interpolation=cv2.INTER_NEAREST)
+    roi_bin_big = cv2.resize(
+        roi_bin_big, (roi_bin.shape[1], roi_bin.shape[0]), interpolation=cv2.INTER_NEAREST)
 
     _, labels, stats = cv2.connectedComponentsWithStats(roi_bin_big)[:3]
-
 
     if verbose:
         cv2.imshow(f"roi_bin_big", resize_show_img(roi_bin_big))
 
-
     rods = []  # ROD = Region of a Digit
     for i, stat in enumerate(stats):
         left, top, w, h = stat[:4]
-        if w < width and h < height:
+        if w < width and h < height and max(w, h) > min(width, height) / 4:
             rods.append((left, top, left + w, top + h, None))
 
     rods = sorted(rods, key=lambda r: r[0])
@@ -229,11 +237,14 @@ if __name__ == "__main__":
 
     n_NG = 0
 
+    verbose = False
     for img_path in all_img_paths:
+        # if img_path.name != "004_6.png":
+        #     continue
         img = cv2.imread(str(img_path), cv2.IMREAD_GRAYSCALE)
-        ret, value = detect_digit(img, False)
+        ret, value = detect_digit(img, verbose)
         if not ret:
-            ret, value = detect_digit(255 - img, False)
+            ret, value = detect_digit(255 - img, verbose)
         OK = "OK" if gt[img_path.name] == value else "NG"
         if OK != "OK":
             n_NG += 1
