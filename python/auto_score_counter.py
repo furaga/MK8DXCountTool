@@ -155,7 +155,7 @@ def extract_regions(all_bounding_boxes, check_fn):
     best_idx = -1
 
     for i, bs in enumerate(boxes_ls):
-        if len(bs) < 8:
+        if len(bs) < 10:
             continue
         if best_idx < 0:
             best_idx = i
