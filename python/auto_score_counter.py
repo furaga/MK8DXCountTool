@@ -277,7 +277,9 @@ def correct_scores(scores, score_regions, img_bgr):
             f"data/digital_testdata/{args.img_path.stem}_{i}.png", crop)
 
         # デジタル数字はGoogle OCRで認識しづらい。がんばって自力で認識する
-        score = digit_ocr.detect_digit(crop)
+        ret, score = digit_ocr.detect_digit(crop)
+        if not ret:
+            _, score = digit_ocr.detect_digit(255 - crop)
         print("digit_ocr: score=", score)
 
         scores[i] = str(score)
@@ -348,7 +350,7 @@ def main(args):
         cv2.rectangle(img_bgr, (x, y), (x + w, y + h), (0, 255, 0), 4, -1)
 
     cv2.imshow("img_bgr", img_bgr)
-    #cv2.waitKey(0)
+    # cv2.waitKey(0)
 
 
 if __name__ == '__main__':
