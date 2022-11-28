@@ -107,7 +107,7 @@ def rod2digit(rod, rod_bin):
 
 def resize_show_img(img, target_width=256):
     ratio = target_width / img.shape[1]
-    return cv2.resize(img, None, fx=ratio, fy=ratio)
+    return cv2.resize(img, None, fx=ratio, fy=ratio, interpolation=cv2.INTER_NEAREST)
 
 
 def detect_digit(roi_gray, verbose=False):
@@ -134,7 +134,6 @@ def detect_digit(roi_gray, verbose=False):
         comp_means.append(cv2.mean(roi_gray, mask=mask)[0])
 
     comp_mean_threshold = np.max(comp_means) - 30
-    rods = []  # ROD = Region of a Digit
     for i, stat in enumerate(stats):
         area = stat[-1]
         if area < width * height * 0.05 and max(stat[2], stat[3]) < min(width, height) * 0.2:
@@ -146,14 +145,31 @@ def detect_digit(roi_gray, verbose=False):
         if comp_means[i] < comp_mean_threshold:
             roi_bin[i == labels] = 0
             continue
-        left, top, w, h = stat[:4]
-        rods.append((left, top, left + w, top + h, None))
 
     if verbose:
         cv2.imshow("roi_bin2", resize_show_img(roi_bin))
 
+    roi_bin_big = resize_show_img(roi_bin)
+    kernel = np.ones((5, 5), np.uint8)
+    roi_bin_big = cv2.morphologyEx(roi_bin_big, cv2.MORPH_CLOSE, kernel)
+    roi_bin_big = cv2.resize(roi_bin_big, (roi_bin.shape[1], roi_bin.shape[0]), interpolation=cv2.INTER_NEAREST)
+
+    _, labels, stats = cv2.connectedComponentsWithStats(roi_bin_big)[:3]
+
+
+    if verbose:
+        cv2.imshow(f"roi_bin_big", resize_show_img(roi_bin_big))
+
+
+    rods = []  # ROD = Region of a Digit
+    for i, stat in enumerate(stats):
+        left, top, w, h = stat[:4]
+        if w < width and h < height:
+            rods.append((left, top, left + w, top + h, None))
+
     rods = sorted(rods, key=lambda r: r[0])
     if len(rods) <= 0:
+        cv2.waitKey(0)
         return False, 0
 
     num = 0
@@ -161,11 +177,11 @@ def detect_digit(roi_gray, verbose=False):
         print("rods", rods)
     for i, rod in enumerate(rods):
         left, top, right, bottom, _ = rod
-        digit = rod2digit(rod, roi_bin[top:bottom, left:right])
+        cropped = roi_bin_big[top:bottom, left:right]
+        digit = rod2digit(rod, cropped)
         if verbose:
             print("digit =", digit)
-            cv2.imshow(f"roi{i}", resize_show_img(
-                roi_bin[top:bottom, left:right]))
+            cv2.imshow(f"roi{i}", resize_show_img(cropped))
         num = 10 * num + digit
 
     if verbose:
@@ -211,10 +227,16 @@ if __name__ == "__main__":
         "008_7.png": 41,
     }
 
+    n_NG = 0
+
     for img_path in all_img_paths:
         img = cv2.imread(str(img_path), cv2.IMREAD_GRAYSCALE)
         ret, value = detect_digit(img, False)
         if not ret:
-            ret, value = detect_digit(255 - img, True)
+            ret, value = detect_digit(255 - img, False)
         OK = "OK" if gt[img_path.name] == value else "NG"
+        if OK != "OK":
+            n_NG += 1
         print(f"{OK} {img_path.name}: {value}")
+
+    print("# of NG =", n_NG)
