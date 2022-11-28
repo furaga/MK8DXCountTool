@@ -101,8 +101,8 @@ def rod2digit(rod, rod_bin):
             list(map(ison, segments, is_verticals, ret_vals)))]
     if -1 == read_digit and np.max(np.count_nonzero(rod_bin, axis=0)) / max(1, np.max(np.count_nonzero(rod_bin, axis=1))) > 3.5:
         read_digit = 1
-    return {'digit': int(read_digit), 'left': int(rod[1]), 'top': int(rod[0]),
-            'width': int(width_rod), 'height': int(height_rod)}
+
+    return read_digit
 
 
 def resize_show_img(img, target_width=256):
@@ -118,104 +118,103 @@ def detect_digit(roi_gray, verbose=False):
 
     height, width = roi_gray.shape
 
-    EDGELEN_PERCENT = (height + width) / 200
-
-
     roi_bin = cv2.adaptiveThreshold(roi_gray, 255,
-                                          cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY,
-                                          max(int(min(height, width) / 4), 1) * 2 + 1, 2)
+                                    cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY,
+                                    max(int(min(height, width) / 4), 1) * 2 + 1, 2)
 
     if verbose:
         cv2.imshow("roi_bin", resize_show_img(roi_bin))
 
-    rods = []  # ROD = Region of a Digit
-    KERNEL_4N = np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]], dtype=np.uint8)
-    tmp = cv2.erode(roi_bin.copy(), KERNEL_4N)
-
-    _, labels, stats = cv2.connectedComponentsWithStats(tmp)[:3]
+    _, labels, stats = cv2.connectedComponentsWithStats(roi_bin)[:3]
 
     # 数字は外枠に接していない想定
+    comp_means = []
     for i, stat in enumerate(stats):
+        mask = (255 * (labels == i)).astype(np.uint8)
+        comp_means.append(cv2.mean(roi_gray, mask=mask)[0])
+
+    comp_mean_threshold = np.max(comp_means) - 30
+    rods = []  # ROD = Region of a Digit
+    for i, stat in enumerate(stats):
+        area = stat[-1]
+        if area < width * height * 0.05 and max(stat[2], stat[3]) < min(width, height) * 0.2:
+            roi_bin[i == labels] = 0
+            continue
         if 0 == min(stat[0], stat[1]) or width == stat[0] + stat[2] or height == stat[1] + stat[3]:
             roi_bin[i == labels] = 0
+            continue
+        if comp_means[i] < comp_mean_threshold:
+            roi_bin[i == labels] = 0
+            continue
+        left, top, w, h = stat[:4]
+        rods.append((left, top, left + w, top + h, None))
 
     if verbose:
         cv2.imshow("roi_bin2", resize_show_img(roi_bin))
-        cv2.imshow("tmp", resize_show_img(tmp))
-
-    # Cut off bright area near the display contour and long bright line.
-    tmp = roi_bin.copy()
-    for i, bright in enumerate(np.count_nonzero(roi_bin, axis=1)):
-        if bright < width * .8:
-            continue
-        tmp[i, :] = 0
-    for i, bright in enumerate(np.count_nonzero(roi_bin, axis=0)):
-        if bright < height * .95:
-            continue
-        tmp[:, i] = 0
-    roi_bin = tmp.copy()
-
-    # Remove blobs which is not a segment or a digit.
-    labels, stats = cv2.connectedComponentsWithStats(roi_bin)[1:3]
-    for i, stat in enumerate(stats):
-        left, top, w, h = stat[:4]
-        if roi_bin[i == labels][0] < 128:
-            continue
-        right, bottom = left + w, top + h
-        if not is_digit_or_segment((top, left, right, bottom, stat[4])):
-            roi_bin[i == labels] = 0
-
-    # Remove thin lines.
-
-    kernel = np.ones((5, 5), np.uint8)
-    roi_bin = cv2.morphologyEx(roi_bin, cv2.MORPH_CLOSE, kernel)
-    # roi_bin = cv2.erode(roi_bin, KERNEL_4N, iterations=int(EDGELEN_PERCENT / 2 * .5) + 1)
-    # roi_bin = cv2.dilate(roi_bin, KERNEL_4N, iterations=int(EDGELEN_PERCENT / 2 * .5) + 1)
-
-    n_labels, labels, stats = cv2.connectedComponentsWithStats(roi_bin)[:3]
-    json_digits = {'digits': []}
-
-    for i, stat in enumerate(stats):
-        left, top, w, h = stat[:4]
-
-        if h < height * 0.5 or height * 0.99 < h:
-            continue
-
-        right, bottom = left + w - 1, top + h - 1
-        if not rod_thresholding((top, left, right, bottom, stat[4]), height, width, max_area_ratio=.4):
-            continue
-
-        # Remove low contrast area. (ex. shadow but not a digit)
-        rod_gray = roi_gray[top:bottom+1, left:right+1].copy()
-        height_rod, width_rod = rod_gray.shape
-        nth = width_rod * \
-            height_rod // (40 if height_rod / width_rod > 3 else 12)
-        min_value = np.partition(rod_gray.ravel(), nth)[nth]
-        rod_gray[(i != labels)[top:bottom+1, left:right+1]] = min_value
-        if np.max(rod_gray) - min_value < MIN_ROD_CONTRAST:
-            continue
-
-        rods.append((left, top, left + w, top + h, None))
 
     rods = sorted(rods, key=lambda r: r[0])
+    if len(rods) <= 0:
+        return False, 0
 
     num = 0
-    for rod in rods:
+    if verbose:
+        print("rods", rods)
+    for i, rod in enumerate(rods):
         left, top, right, bottom, _ = rod
-        digit = rod2digit(rod, roi_bin[top:bottom, left:right])["digit"]
+        digit = rod2digit(rod, roi_bin[top:bottom, left:right])
+        if verbose:
+            print("digit =", digit)
+            cv2.imshow(f"roi{i}", resize_show_img(
+                roi_bin[top:bottom, left:right]))
         num = 10 * num + digit
 
     if verbose:
-        print("result =", num)
+        #        print("result =", num)
         cv2.waitKey(0)
 
-    return num
+    return True, num
 
 
 if __name__ == "__main__":
     from pathlib import Path
     all_img_paths = Path("data/digital_testdata").glob("*.png")
+
+    gt = {
+        "002_4.png": 66,
+        "002_5.png": 65,
+
+        "003_0.png": 40,
+        "003_8.png": 23,
+        "003_11.png": 10,
+
+        "004_6.png": 19,
+        "004_10.png": 11,
+        "004_11.png": 6,
+
+        "005_0.png": 115,
+        "005_1.png": 90,
+        "005_3.png": 86,
+        "005_8.png": 77,
+
+        "006_7.png": 62,
+        "006_11.png": 9,
+
+        "007_0.png": 103,
+        "007_2.png": 87,
+        "007_6.png": 70,
+        "007_8.png": 65,
+        "007_11.png": 19,
+
+        "008_2.png": 47,
+        "008_3.png": 50,
+        "008_6.png": 33,
+        "008_7.png": 41,
+    }
+
     for img_path in all_img_paths:
         img = cv2.imread(str(img_path), cv2.IMREAD_GRAYSCALE)
-        value = detect_digit(img, True)
-        print(f"{img_path.stem}: {value}")
+        ret, value = detect_digit(img, False)
+        if not ret:
+            ret, value = detect_digit(255 - img, True)
+        OK = "OK" if gt[img_path.name] == value else "NG"
+        print(f"{OK} {img_path.name}: {value}")
