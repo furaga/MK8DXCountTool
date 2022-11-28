@@ -273,7 +273,7 @@ def correct_scores(scores, score_regions, img_bgr):
         right = min(x+w+margin, img_bgr.shape[1])
         crop = img_gray[top:bottom, left:right]
 
-        cv2.imwrite(f"data/scores_crop/{i}.png", crop)
+        cv2.imwrite(f"data/digital_testdata/{args.img_path.stem}_{i}.png", crop)
 
         # デジタル数字はGoogle OCRで認識しづらい。がんばって自力で認識する
         score = digit_ocr.detect_digit(crop)
@@ -290,6 +290,8 @@ def main(args):
     print(ocr_path)
 
     all_texts, all_bounding_vertexes = load_ocr_results(ocr_path)
+
+
     all_bounding_boxes = bounding_vertexes_to_boxes(all_bounding_vertexes)
     all_bounding_boxes = merge_neighboring_bboxes(all_bounding_boxes)
 
