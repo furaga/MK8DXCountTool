@@ -152,7 +152,18 @@ def extract_regions(all_bounding_boxes, check_fn):
         if not found:
             boxes_ls.append([b])
 
-    best_idx = np.argmax([len(bs) for bs in boxes_ls])
+    best_idx = -1
+
+    for i, bs in enumerate(boxes_ls):
+        if len(bs) < 8:
+            continue
+        if best_idx < 0:
+            best_idx = i
+        else:
+            # 左を優先する
+            if boxes_ls[best_idx][0][0] > boxes_ls[i][0][0]:
+                best_idx = i
+
     return boxes_ls[best_idx]
 
 
