@@ -155,7 +155,7 @@ def extract_regions(all_bounding_boxes, check_fn):
     best_idx = -1
 
     for i, bs in enumerate(boxes_ls):
-        if len(bs) < 10:
+        if len(bs) < 6:
             continue
         if best_idx < 0:
             best_idx = i
@@ -189,8 +189,27 @@ def correct_regions(name_regions, score_regions):
     score_minx = np.min([b[0] for b in score_regions])
     score_maxx = np.max([b[0] + b[2] for b in score_regions])
 
+    name_mean_dy = np.mean([name_regions[i + 1][1] - name_regions[i][1]
+                            for i in range(len(name_regions) - 1)])
+    name_minx = np.min([b[0] for b in name_regions])
+    name_maxx = np.max([b[0] + b[2] for b in name_regions])
+
     # TODO: nameの漏れがあった場合の補完
-    new_name_regions = name_regions
+    new_name_regions = []
+    for i, b in enumerate(name_regions[:-1]):
+        dy = name_regions[i + 1][1] - name_regions[i][1]
+        drow = round(dy / name_mean_dy)
+        if drow > 1:
+            for j in range(drow - 1):
+                interp_y = name_regions[i][1] + int((j + 1) * dy / drow)
+                interp_h = name_regions[i][3]
+                new_name_regions.append(
+                    [name_minx, interp_y, name_maxx - name_minx, interp_h])
+        new_name_regions.append(b)
+
+    new_name_regions.append(name_regions[-1])
+
+    print("new_name_regions", len(new_name_regions), len(name_regions))
 
     # nameに対応するscoreを見つける
     new_score_regions = []
@@ -258,6 +277,60 @@ def try_int(t):
         return False, 0
 
 
+def detect_text(path):
+    """Detects text in the file."""
+    from google.cloud import vision
+    import io
+    client = vision.ImageAnnotatorClient()
+
+    with io.open(path, 'rb') as image_file:
+        content = image_file.read()
+
+    image = vision.Image(content=content)
+
+    response = client.text_detection(image=image)
+    texts = response.text_annotations
+
+    if response.error.message:
+        raise Exception(
+            '{}\nFor more info on error messages, check: '
+            'https://cloud.google.com/apis/design/errors'.format(
+                response.error.message))
+
+    return texts
+
+
+def correct_names(names, name_regions, img_bgr):
+    margin = 16
+    img_gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+
+    for i in range(len(names)):
+        if names[i] != "":
+            continue
+        x, y, w, h = name_regions[i]
+        top = max(0, y-margin)
+        bottom = min(y+h+margin, img_bgr.shape[0])
+        left = max(0, x-margin)
+        right = min(x+w+margin, img_bgr.shape[1])
+
+        crop = img_bgr[top:bottom, left:right]
+
+        cv2.imwrite("__tmp__.png", crop)
+        texts = detect_text("__tmp__.png")
+        new_name = ""
+        print(texts)
+        if len(texts) >= 1:
+            t = texts[0].description.encode('cp932', "ignore")
+            new_name = t.decode('cp932')
+
+        print(
+            f"name {i} is not valid. Use Google Vision API -> '{new_name}'")
+
+        names[i] = new_name
+
+    return names
+
+
 def correct_scores(scores, score_regions, img_bgr):
     prev_score = 0
     for i in range(len(scores) - 1, 0, -1):
@@ -291,7 +364,6 @@ def correct_scores(scores, score_regions, img_bgr):
         ret, score = digit_ocr.detect_digit(crop)
         if not ret:
             _, score = digit_ocr.detect_digit(255 - crop)
-        print("digit_ocr: score=", score)
 
         scores[i] = str(score)
 
@@ -319,10 +391,11 @@ def main(args):
     print(scores)
 
     img_bgr = cv2.imread(str(args.img_path))
-
+    names = correct_names(names, name_regions, img_bgr)
     scores = correct_scores(scores, score_regions, img_bgr)
-    for n, s in zip(names, scores):
-        print(n, ":", s)
+
+    for i, (n, s) in enumerate(zip(names, scores)):
+        print(f"{i+1}: {n}, {s}")
 
     # タグを推定
     tags = estimate_tags(names)
@@ -361,7 +434,7 @@ def main(args):
         cv2.rectangle(img_bgr, (x, y), (x + w, y + h), (0, 255, 0), 4, -1)
 
     cv2.imshow("img_bgr", img_bgr)
-    # cv2.waitKey(0)
+    cv2.waitKey(0)
 
 
 if __name__ == '__main__':
