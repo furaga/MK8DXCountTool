@@ -16,6 +16,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Hand Tracking Demo')
     parser.add_argument('--img_path', type=Path, required=True)
     parser.add_argument('--ocr_path', type=Path, default="")
+    parser.add_argument('--team_size', type=int, default=2)  # 1組何人か
     parser.add_argument('--my_tag', type=str, default="RR")
     args = parser.parse_args()
     return args
@@ -47,39 +48,40 @@ def common_suffix(n1, n2):
     return common_prefix(n1[::-1], n2[::-1])[::-1]
 
 
-def estimate_tags(names):
+def estimate_tags(names, team_size):
     tags = []
-    for i, n in enumerate(names):
+    names_lower = [n.lower() for n in names]
+    for i, n in enumerate(names_lower):
         # 既存のtagがあるか
         found = False
         for t, is_prefix in tags:
-            if is_prefix and n.startswith(t):
+            if is_prefix and n.startswith(t.lower()):
                 found = True
                 break
-            if not is_prefix and n.endswith(t):
+            if not is_prefix and n.endswith(t.lower()):
                 found = True
                 break
         if found:
             continue
 
-        new_tag = []
-        for j, n2 in enumerate(names):
-            if i != j:
-                prefix = common_prefix(n, n2)
-                suffix = common_suffix(n, n2)
-                if len(prefix) > 0:
-                    if len(new_tag) <= 0 or len(new_tag[0]) < len(prefix):
-                        new_tag = prefix, True
-                elif len(suffix) > 0:
-                    if len(new_tag) <= 0 or len(new_tag[0]) < len(suffix):
-                        new_tag = suffix, False
+        new_tag = "", True
+        for j in range(1, len(n) + 1):
+            prefix = n[:j]
+            n_has_prefix = len(
+                [n for n in names_lower if n.startswith(prefix)])
+            if len(new_tag[0]) < len(prefix) and team_size <= n_has_prefix:
+                new_tag = names[i][:j], True
 
-        if len(new_tag) <= 0:
-            print(f"tag for {n} not found. Use its name as tag.")
-            tags.append((n, True))
+            suffix = n[-j:]
+            n_has_suffix = len([n for n in names_lower if n.endswith(suffix)])
+            if len(new_tag[0]) < len(suffix) and team_size <= n_has_suffix:
+                new_tag = names[i][-j:], False
+
+        if len(new_tag[0]) <= 0:
+            print(f"tag for {names[i]} not found. Use its name as tag.")
+            tags.append((names[i], True))
         else:
             tags.append(new_tag)
-
     return tags
 
 
@@ -177,7 +179,8 @@ def extract_name_regions(all_bounding_boxes):
 def extract_score_regions(all_bounding_boxes):
     return extract_regions(
         all_bounding_boxes,
-        check_fn=lambda b, bs: abs(b[0] + b[2] - bs[0][0] - bs[0][2]) < 10 and b[0] > 50
+        check_fn=lambda b, bs: abs(
+            b[0] + b[2] - bs[0][0] - bs[0][2]) < 10 and b[0] > 50
     )
 
 
@@ -315,6 +318,7 @@ def correct_names(names, name_regions, img_bgr):
         crop = img_bgr[top:bottom, left:right]
 
         cv2.imwrite("__tmp__.png", crop)
+        assert False
         texts = detect_text("__tmp__.png")
         new_name = ""
         if len(texts) >= 1:
@@ -390,16 +394,17 @@ def main(args):
     names = correct_names(names, name_regions, img_bgr)
     scores = correct_scores(scores, score_regions, img_bgr)
 
+    print("====================")
     for i, (n, s) in enumerate(zip(names, scores)):
         print(f"{i+1}: {n}, {s}")
 
     # タグを推定
-    tags = estimate_tags(names)
+    tags = estimate_tags(names, args.team_size)
 
     def has_tag(n, t):
-        if t[1] and n.startswith(t[0]):
+        if t[1] and n.lower().startswith(t[0].lower()):
             return True
-        if not t[1] and n.endswith(t[0]):
+        if not t[1] and n.lower().endswith(t[0].lower()):
             return True
         return False
 
@@ -416,18 +421,18 @@ def main(args):
     my_tag = [t for t, _ in tags if args.my_tag in t]
     my_tag = my_tag[0] if len(my_tag) >= 1 else tags[0][0]
     sorted_tag_scores = sorted(tag_scores.items(), key=lambda ts: -ts[1])
+
     print("====================")
     for tag, score in sorted_tag_scores:
         diff = score - tag_scores[my_tag]
         print(f"{tag}: {score} ({'+' if diff >= 0 else ''}{diff})")
-    print("====================")
 
     for x, y, w, h in all_bounding_boxes:
         cv2.rectangle(img_bgr, (x, y), (x + w, y + h), (0, 0, 255), 2, -1)
     for x, y, w, h in name_regions:
-        cv2.rectangle(img_bgr, (x, y), (x + w, y + h), (255, 0, 255), 4, -1)
+        cv2.rectangle(img_bgr, (x, y), (x + w, y + h), (255, 0, 255), 2, -1)
     for x, y, w, h in score_regions:
-        cv2.rectangle(img_bgr, (x, y), (x + w, y + h), (0, 255, 0), 4, -1)
+        cv2.rectangle(img_bgr, (x, y), (x + w, y + h), (0, 255, 0), 2, -1)
 
     cv2.imshow("img_bgr", img_bgr)
     cv2.waitKey(0)
