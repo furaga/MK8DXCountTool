@@ -170,14 +170,14 @@ def extract_regions(all_bounding_boxes, check_fn):
 def extract_name_regions(all_bounding_boxes):
     return extract_regions(
         all_bounding_boxes,
-        check_fn=lambda b, bs: abs(b[0] - bs[0][0]) < 10
+        check_fn=lambda b, bs: abs(b[0] - bs[0][0]) < 10 and b[0] > 50
     )
 
 
 def extract_score_regions(all_bounding_boxes):
     return extract_regions(
         all_bounding_boxes,
-        check_fn=lambda b, bs: abs(b[0] + b[2] - bs[0][0] - bs[0][2]) < 10
+        check_fn=lambda b, bs: abs(b[0] + b[2] - bs[0][0] - bs[0][2]) < 10 and b[0] > 50
     )
 
 
@@ -208,8 +208,6 @@ def correct_regions(name_regions, score_regions):
         new_name_regions.append(b)
 
     new_name_regions.append(name_regions[-1])
-
-    print("new_name_regions", len(new_name_regions), len(name_regions))
 
     # nameに対応するscoreを見つける
     new_score_regions = []
@@ -288,7 +286,7 @@ def detect_text(path):
 
     image = vision.Image(content=content)
 
-    response = client.text_detection(image=image)
+    response = client.document_text_detection(image=image)
     texts = response.text_annotations
 
     if response.error.message:
@@ -301,13 +299,14 @@ def detect_text(path):
 
 
 def correct_names(names, name_regions, img_bgr):
-    margin = 16
+    margin = 8
     img_gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
 
     for i in range(len(names)):
         if names[i] != "":
             continue
         x, y, w, h = name_regions[i]
+        w = h
         top = max(0, y-margin)
         bottom = min(y+h+margin, img_bgr.shape[0])
         left = max(0, x-margin)
@@ -318,13 +317,12 @@ def correct_names(names, name_regions, img_bgr):
         cv2.imwrite("__tmp__.png", crop)
         texts = detect_text("__tmp__.png")
         new_name = ""
-        print(texts)
         if len(texts) >= 1:
             t = texts[0].description.encode('cp932', "ignore")
             new_name = t.decode('cp932')
 
         print(
-            f"name {i} is not valid. Use Google Vision API -> '{new_name}'")
+            f"names[{i}] is not valid. Use Google Vision API -> '{new_name}'")
 
         names[i] = new_name
 
@@ -387,8 +385,6 @@ def main(args):
 
     names = find_texts(name_regions, all_texts, all_bounding_vertexes)
     scores = find_texts(score_regions, all_texts, all_bounding_vertexes)
-    print(names)
-    print(scores)
 
     img_bgr = cv2.imread(str(args.img_path))
     names = correct_names(names, name_regions, img_bgr)
