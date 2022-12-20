@@ -79,7 +79,10 @@ def estimate_tags(names, team_size):
 
         if len(new_tag[0]) <= 0:
             print(f"tag for {names[i]} not found. Use its name as tag.")
-            tags.append((names[i], True))
+            if len(names[i]) >= 1:
+                tags.append((names[i], True))
+            else:
+                tags.append(("--", True))
         else:
             tags.append(new_tag)
     return tags
@@ -157,7 +160,7 @@ def extract_regions(all_bounding_boxes, check_fn):
     best_idx = -1
 
     for i, bs in enumerate(boxes_ls):
-        if len(bs) < 6:
+        if len(bs) < 8:
             continue
         if best_idx < 0:
             best_idx = i
@@ -169,10 +172,11 @@ def extract_regions(all_bounding_boxes, check_fn):
     return boxes_ls[best_idx]
 
 
-def extract_name_regions(all_bounding_boxes):
+def extract_name_regions(all_bounding_boxes, img_width, img_height):
+    print(img_width / 8)
     return extract_regions(
         all_bounding_boxes,
-        check_fn=lambda b, bs: abs(b[0] - bs[0][0]) < 10 and b[0] > 50
+        check_fn=lambda b, bs: abs(b[0] - bs[0][0]) < img_width // 16 and b[0] > img_width / 8
     )
 
 
@@ -317,18 +321,17 @@ def correct_names(names, name_regions, img_bgr):
 
         crop = img_bgr[top:bottom, left:right]
 
-        cv2.imwrite("__tmp__.png", crop)
-        assert False
-        texts = detect_text("__tmp__.png")
-        new_name = ""
-        if len(texts) >= 1:
-            t = texts[0].description.encode('cp932', "ignore")
-            new_name = t.decode('cp932')
+        # cv2.imwrite("__tmp__.png", crop)
+        # texts = detect_text("__tmp__.png")
+        # new_name = ""
+        # if len(texts) >= 1:
+        #     t = texts[0].description.encode('cp932', "ignore")
+        #     new_name = t.decode('cp932')
 
-        print(
-            f"names[{i}] is not valid. Use Google Vision API -> '{new_name}'")
+        # print(
+        #     f"names[{i}] is not valid. Use Google Vision API -> '{new_name}'")
 
-        names[i] = new_name
+        # names[i] = new_name
 
     return names
 
@@ -377,20 +380,21 @@ def main(args):
         str(args.ocr_path)) <= 0 else fallback_ocr_path(args.img_path)
     print(ocr_path)
 
+    img_bgr = cv2.imread(str(args.img_path))
+    img_height, img_width = img_bgr.shape[:2]
     all_texts, all_bounding_vertexes = load_ocr_results(ocr_path)
 
     all_bounding_boxes = bounding_vertexes_to_boxes(all_bounding_vertexes)
     all_bounding_boxes = merge_neighboring_bboxes(all_bounding_boxes)
 
-    name_regions = extract_name_regions(all_bounding_boxes)
-    score_regions = extract_score_regions(all_bounding_boxes)
+    name_regions = extract_name_regions(all_bounding_boxes, img_width, img_height)
+    score_regions = extract_score_regions(all_bounding_boxes) #, img_width, img_height)
 
     name_regions, score_regions = correct_regions(name_regions, score_regions)
 
     names = find_texts(name_regions, all_texts, all_bounding_vertexes)
     scores = find_texts(score_regions, all_texts, all_bounding_vertexes)
 
-    img_bgr = cv2.imread(str(args.img_path))
     names = correct_names(names, name_regions, img_bgr)
     scores = correct_scores(scores, score_regions, img_bgr)
 
