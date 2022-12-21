@@ -1,4 +1,4 @@
-1. Save screenshot of TA video using https://github.com/furaga/Screenshot-YouTube
+1. Save screenshots of TA videos using https://github.com/furaga/Screenshot-YouTube
 
 2. Run like
 
