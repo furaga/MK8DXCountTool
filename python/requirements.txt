@@ -3,3 +3,5 @@ playsound==1.2.2
 pyocr
 Pillow
 google-cloud-vision
+mss
+pandas
